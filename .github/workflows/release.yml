@@ -1,11 +1,11 @@
 name: Release
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Account to deploy'
+        description: "Account to deploy"
         type: environment
         required: true
 
@@ -21,24 +21,20 @@ jobs:
     environment: ${{ inputs.environment || 'devhub.near' }}
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v1
-    - name: Install cargo-near
-      run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
-    - name: Build community factory contract
-      run: cd community-factory && cargo near build
-    - name: Build devhub contract
-      run: cargo near build
-    - name: Install near CLI
-      run: |
-        curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.3.1/near-cli-rs-v0.3.1-installer.sh | sh
-    - name: Deploy contract
-      run: |
-        output=$(near contract call-function as-transaction "$NEAR_DEVHUB_ACCOUNT_ID" unsafe_self_upgrade file-args ./target/near/devhub.wasm prepaid-gas '200 TeraGas' attached-deposit '0 NEAR' sign-as "$NEAR_DEVHUB_ACCOUNT_ID" network-config "$NEAR_NETWORK_CONNECTION" sign-with-plaintext-private-key --signer-public-key "$NEAR_DEVHUB_ACCOUNT_PUBLIC_KEY" --signer-private-key "$NEAR_DEVHUB_ACCOUNT_PRIVATE_KEY" send)
-        while [[ ! "$output" == *"Migration done."* ]]; do
-          echo "$output"
-          sleep 5
-          output=$(near contract call-function as-transaction "$NEAR_DEVHUB_ACCOUNT_ID" unsafe_migrate json-args '{}' prepaid-gas '100 TeraGas' attached-deposit '0 NEAR' sign-as "$NEAR_DEVHUB_ACCOUNT_ID" network-config "$NEAR_NETWORK_CONNECTION" sign-with-plaintext-private-key --signer-public-key "$NEAR_DEVHUB_ACCOUNT_PUBLIC_KEY" --signer-private-key "$NEAR_DEVHUB_ACCOUNT_PRIVATE_KEY" send)
-        done
-        echo "$output"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v1
+      - name: Install cargo-near
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
+      - name: Build community factory contract
+        run: cd community-factory && cargo near build
+      - name: Build devhub contract
+        run: cargo near build
+      - name: Install near CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.3.1/near-cli-rs-v0.3.1-installer.sh | sh
+      - name: Deploy contract
+        run: |
+          output=$(near contract call-function as-transaction "$NEAR_DEVHUB_ACCOUNT_ID" unsafe_self_upgrade file-args ./target/near/devhub.wasm prepaid-gas '200 TeraGas' attached-deposit '0 NEAR' sign-as "$NEAR_DEVHUB_ACCOUNT_ID" network-config "$NEAR_NETWORK_CONNECTION" sign-with-plaintext-private-key --signer-public-key "$NEAR_DEVHUB_ACCOUNT_PUBLIC_KEY" --signer-private-key "$NEAR_DEVHUB_ACCOUNT_PRIVATE_KEY" send)
+          while [[ ! "$output" == *"Migration done."* ]]; do
+            echo "$output"

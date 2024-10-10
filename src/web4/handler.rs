@@ -6,6 +6,8 @@ use crate::{
     web4::types::{Web4Request, Web4Response},
     Contract, Proposal,
 };
+use std::borrow::Cow;
+use urlencoding::decode;
 
 pub const WEB4_RESOURCE_ACCOUNT: &str = "devhub.near";
 
@@ -109,11 +111,11 @@ pub fn web4_get(contract: &Contract, request: Web4Request) -> Web4Response {
         "https://i.near.social/magic/large/https://near.social/magic/img/account/{}",
         &current_account_id
     );
-    let redirect_path;
+    let mut redirect_path;
     let initial_props_json;
 
-    match (page, path_parts.get(2)) {
-        ("community", Some(handle)) => {
+    match (page, path_parts.get(2), path_parts.get(3)) {
+        ("community", Some(handle), _) => {
             if let Some(community) = contract.get_community(handle.to_string()) {
                 title = format!(" - Community - {}", community.name);
                 description = community.description;
@@ -125,7 +127,7 @@ pub fn web4_get(contract: &Contract, request: Web4Request) -> Web4Response {
                 format!("{}/widget/app?page={}&handle={}", &current_account_id, page, handle);
             initial_props_json = json!({"page": page, "handle": handle});
         }
-        ("proposal", Some(id)) => {
+        ("proposal", Some(id), _) => {
             if let Ok(id) = id.parse::<u32>() {
                 if let Some(versioned_proposal) = contract.proposals.get(id.into()) {
                     let proposal_body =
@@ -141,7 +143,7 @@ pub fn web4_get(contract: &Contract, request: Web4Request) -> Web4Response {
             redirect_path = format!("{}/widget/app?page={}&id={}", &current_account_id, page, id);
             initial_props_json = json!({"page": page, "id": id});
         }
-        ("rfp", Some(id)) => {
+        ("rfp", Some(id), _) => {
             if let Ok(id) = id.parse::<u32>() {
                 if let Some(versioned_rfp) = contract.rfps.get(id.into()) {
                     let rfp_body = RFP::from(versioned_rfp).snapshot.body.latest_version();
@@ -156,10 +158,36 @@ pub fn web4_get(contract: &Contract, request: Web4Request) -> Web4Response {
             redirect_path = format!("{}/widget/app?page={}&id={}", &current_account_id, page, id);
             initial_props_json = json!({"page": page, "id": id});
         }
+        // Handle blog route with community and blog title
+        ("blog", Some(community), Some(last)) => {
+            let (blog_title_encoded, _) = last.split_once('?').unwrap_or((last, ""));
+            let community = decode(community).unwrap_or(Cow::Borrowed(community));
+            let blog_title =
+                decode(blog_title_encoded).unwrap_or(Cow::Borrowed(blog_title_encoded));
+
+            redirect_path = format!(
+                "{}/widget/app?page=blogv2&community={}&id={}",
+                &current_account_id, community, blog_title
+            );
+            initial_props_json = json!({
+                "page": "blogv2",
+                "community": community,
+                "id": blog_title
+            });
+            title = format!(" - Blog - {} - {}", community, blog_title);
+            description =
+                format!("Read the latest blog from the {} community: {}", community, blog_title);
+        }
         _ => {
-            redirect_path = format!("{}/widget/app", &current_account_id);
+            redirect_path = format!("{}/widget/app?", &current_account_id);
             initial_props_json = json!({"page": page});
         }
+    }
+
+    let query_parameters: Option<&str> = request.path.split('?').nth(1);
+
+    if let Some(parameters) = query_parameters {
+        redirect_path = format!("{}&{}", redirect_path, parameters);
     }
 
     let app_name = html_escape::encode_text(&app_name).to_string();
@@ -255,12 +283,12 @@ mod tests {
         .to_string();
 
         let body_base64 = BASE64_STANDARD.encode(body_string);
-        return serde_json::json!({
+        serde_json::json!({
                 String::from(PRELOAD_URL): {
                     "contentType": "application/json",
                     "body": body_base64
                 }
-        });
+        })
     }
 
     fn view_test_env() -> VMContext {
@@ -286,7 +314,7 @@ mod tests {
         );
         match response_before_preload {
             Web4Response::PreloadUrls { preload_urls } => {
-                assert_eq!(PRELOAD_URL, preload_urls.get(0).unwrap())
+                assert_eq!(PRELOAD_URL, preload_urls.first().unwrap())
             }
             _ => {
                 panic!("Should return Web4Response::PreloadUrls");
@@ -436,6 +464,36 @@ mod tests {
                 let expected_initial_props_string =
                     json!({"page": "community", "handle": "webassemblymusic"}).to_string();
                 assert!(body_string.contains(&expected_initial_props_string));
+            }
+            _ => {
+                panic!("Should return Web4Response::Body");
+            }
+        }
+    }
+
+    #[test]
+    pub fn test_blog_page_response() {
+        view_test_env();
+        let contract = Contract::new();
+
+        let response = web4_get(
+            &contract,
+            serde_json::from_value(serde_json::json!({
+                "path": "/blog/dev-dao/blog-title?c=1&s=i",
+                "preloads": create_preload_result(String::from("near/dev/hub"), String::from("The decentralized home base for NEAR builders")),
+            }))
+            .unwrap(),
+        );
+        match response {
+            Web4Response::Body { content_type, body } => {
+                assert_eq!("text/html; charset=UTF-8", content_type);
+
+                let body_string = String::from_utf8(BASE64_STANDARD.decode(body).unwrap()).unwrap();
+                assert!(body_string.contains("<title> - Blog - dev-dao - blog-title</title>"));
+                assert!(body_string.contains("<meta property=\"og:description\" content=\"Read the latest blog from the dev-dao community: blog-title\" />"));
+                assert!(body_string.contains(
+                    "devhub.near/widget/app?page=blogv2&community=dev-dao&id=blog-title&c=1&s=i"
+                ));
             }
             _ => {
                 panic!("Should return Web4Response::Body");
@@ -757,6 +815,114 @@ mod tests {
             }
             _ => {
                 panic!("Should return Web4Response::Body");
+            }
+        }
+    }
+
+    #[test]
+    fn test_blog_page_with_special_characters() {
+        view_test_env();
+        let contract = Contract::new();
+
+        let test_cases = vec![
+            (
+                "/blog/dev-dao/My%20First%20Blog",
+                " - Blog - dev-dao - My First Blog",
+                "Read the latest blog from the dev-dao community: My First Blog",
+                "not-only-devhub.near/widget/app?page=blogv2&community=dev-dao&id=My First Blog",
+                json!({
+                    "page": "blogv2",
+                    "community": "dev-dao",
+                    "id": "My First Blog"
+                }),
+            ),
+            (
+                "/blog/dev-dao/My%20Blog%3F",
+                " - Blog - dev-dao - My Blog?",
+                "Read the latest blog from the dev-dao community: My Blog?",
+                "not-only-devhub.near/widget/app?page=blogv2&community=dev-dao&id=My Blog?",
+                json!({
+                    "page": "blogv2",
+                    "community": "dev-dao",
+                    "id": "My Blog?"
+                }),
+            ),
+            (
+                "/blog/dev-dao/My%20Blog%20%26%20More",
+                " - Blog - dev-dao - My Blog &amp; More",
+                "Read the latest blog from the dev-dao community: My Blog &amp; More",
+                "not-only-devhub.near/widget/app?page=blogv2&community=dev-dao&id=My Blog & More",
+                json!({
+                    "page": "blogv2",
+                    "community": "dev-dao",
+                    "id": "My Blog & More"
+                }),
+            ),
+            (
+                "/blog/dev-dao/My%2FBlog%2FTitle",
+                " - Blog - dev-dao - My/Blog/Title",
+                "Read the latest blog from the dev-dao community: My/Blog/Title",
+                "not-only-devhub.near/widget/app?page=blogv2&community=dev-dao&id=My/Blog/Title",
+                json!({
+                    "page": "blogv2",
+                    "community": "dev-dao",
+                    "id": "My/Blog/Title"
+                }),
+            ),
+        ];
+
+        for (path, expected_title, expected_description, expected_redirect_path, expected_props) in
+            test_cases
+        {
+            let response = web4_get(
+                &contract,
+                serde_json::from_value(serde_json::json!({
+                    "path": path,
+                    "preloads": create_preload_result(
+                        String::from("near/dev/hub"),
+                        String::from("The decentralized home base for NEAR builders")
+                    ),
+                }))
+                .unwrap(),
+            );
+
+            match response {
+                Web4Response::Body { content_type, body } => {
+                    assert_eq!("text/html; charset=UTF-8", content_type);
+
+                    let body_string =
+                        String::from_utf8(BASE64_STANDARD.decode(body).unwrap()).unwrap();
+                    assert!(
+                        body_string.contains(&format!("<title>{}</title>", expected_title)),
+                        "Expected title '{}' not found in body:\n{}",
+                        expected_title,
+                        body_string
+                    );
+                    assert!(
+                        body_string.contains(&format!(
+                            "<meta property=\"og:description\" content=\"{}\" />",
+                            expected_description
+                        )),
+                        "Expected description '{}' not found in body:\n{}",
+                        expected_description,
+                        body_string
+                    );
+                    assert!(
+                        body_string.contains(&expected_redirect_path),
+                        "Expected redirect path '{}' not found in body:\n{}",
+                        expected_redirect_path,
+                        body_string
+                    );
+                    assert!(
+                        body_string.contains(&expected_props.to_string()),
+                        "Expected props '{}' not found in body:\n{}",
+                        expected_props,
+                        body_string
+                    );
+                }
+                _ => {
+                    panic!("Should return Web4Response::Body");
+                }
             }
         }
     }

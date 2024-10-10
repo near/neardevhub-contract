@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    get_subscribers, rfp::get_subscribers as get_rfp_subscribers, Proposal, ProposalId, RFP,
+    proposal::get_subscribers, rfp::get_subscribers as get_rfp_subscribers, Proposal, ProposalId,
+    RFP,
 };
 use devhub_common::social_db_contract;
 use near_sdk::serde_json::json;

@@ -2,10 +2,11 @@
 //! Should be invocable only by the owner and in most cases should be called only once though the
 //! latter is not asserted.
 
+use crate::Contract;
 use crate::*;
-use near_sdk::{borsh::to_vec, env, near, NearToken, Promise};
 use near_sdk::store::Lazy;
-use std::collections::{HashSet, HashMap};
+use near_sdk::{borsh::to_vec, env, near, NearToken, Promise};
+use std::collections::{HashMap, HashSet};
 
 #[near]
 #[derive(PanicOnDefault)]

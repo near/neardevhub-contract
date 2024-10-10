@@ -1,11 +1,10 @@
-use near_sdk::{base64::prelude::*, env};
-use serde_json::json;
-
 use crate::{
-    rfp::RFP,
     web4::types::{Web4Request, Web4Response},
     Contract, Proposal,
 };
+use devhub_shared::rfp::*;
+use near_sdk::{base64::prelude::*, env};
+use serde_json::json;
 
 pub const WEB4_RESOURCE_ACCOUNT: &str = "devhub.near";
 
@@ -234,11 +233,10 @@ mod tests {
 
     use super::{web4_get, WEB4_RESOURCE_ACCOUNT};
     use crate::{
-        rfp::{RFPBodyV0, RFPSnapshot, VersionedRFPBody, RFP},
-        web4::types::Web4Response,
-        CommunityInputs, Contract, Proposal, ProposalBodyV0, ProposalSnapshot,
-        VersionedProposalBody,
+        web4::types::Web4Response, CommunityInputs, Contract, Proposal, ProposalBodyV0,
+        ProposalSnapshot, VersionedProposalBody,
     };
+    use devhub_shared::rfp::{RFPBodyV0, RFPSnapshot, VersionedRFPBody, RFP};
     use near_sdk::{
         base64::prelude::*, serde_json::json, test_utils::VMContextBuilder, testing_env, NearToken,
         VMContext,

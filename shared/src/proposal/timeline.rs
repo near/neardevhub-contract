@@ -4,7 +4,7 @@ pub type TimelineStatus = TimelineStatusV2;
 type ReviewStatus = ReviewStatusV2;
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[serde(tag = "status", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TimelineStatusV1 {
     Draft,
@@ -18,14 +18,14 @@ pub enum TimelineStatusV1 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[serde(tag = "timeline_version")]
 pub enum VersionedTimelineStatus {
     V1(TimelineStatusV2),
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[serde(tag = "status", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TimelineStatusV2 {
     Draft,
@@ -38,7 +38,10 @@ pub enum TimelineStatusV2 {
     Cancelled(ReviewStatusV2),
 }
 
-fn convert_review_status_to_v1(review_status: ReviewStatusV1, kyc_verified: bool) -> ReviewStatusV2 {
+fn convert_review_status_to_v1(
+    review_status: ReviewStatusV1,
+    kyc_verified: bool,
+) -> ReviewStatusV2 {
     ReviewStatusV2 {
         sponsor_requested_review: review_status.sponsor_requested_review,
         reviewer_completed_attestation: review_status.reviewer_completed_attestation,
@@ -71,17 +74,30 @@ impl From<TimelineStatusV1> for TimelineStatusV2 {
     fn from(value: TimelineStatusV1) -> Self {
         match value {
             TimelineStatusV1::Draft => TimelineStatusV2::Draft,
-            TimelineStatusV1::Review(review_status) => TimelineStatusV2::Review(convert_review_status_to_v1(review_status, false)),
-            TimelineStatusV1::Approved(review_status) => TimelineStatusV2::Approved(convert_review_status_to_v1(review_status, false)),
-            TimelineStatusV1::Rejected(review_status) => TimelineStatusV2::Rejected(convert_review_status_to_v1(review_status, false)),
+            TimelineStatusV1::Review(review_status) => {
+                TimelineStatusV2::Review(convert_review_status_to_v1(review_status, false))
+            }
+            TimelineStatusV1::Approved(review_status) => {
+                TimelineStatusV2::Approved(convert_review_status_to_v1(review_status, false))
+            }
+            TimelineStatusV1::Rejected(review_status) => {
+                TimelineStatusV2::Rejected(convert_review_status_to_v1(review_status, false))
+            }
             TimelineStatusV1::ApprovedConditionally(review_status) => {
-                TimelineStatusV2::ApprovedConditionally(convert_review_status_to_v1(review_status, false))
+                TimelineStatusV2::ApprovedConditionally(convert_review_status_to_v1(
+                    review_status,
+                    false,
+                ))
             }
             TimelineStatusV1::PaymentProcessing(payment_processing_status) => {
                 TimelineStatusV2::PaymentProcessing(payment_processing_status.into())
             }
-            TimelineStatusV1::Funded(funded_status) => TimelineStatusV2::Funded(funded_status.into()),
-            TimelineStatusV1::Cancelled(review_status) => TimelineStatusV2::Cancelled(convert_review_status_to_v1(review_status, false)),
+            TimelineStatusV1::Funded(funded_status) => {
+                TimelineStatusV2::Funded(funded_status.into())
+            }
+            TimelineStatusV1::Cancelled(review_status) => {
+                TimelineStatusV2::Cancelled(convert_review_status_to_v1(review_status, false))
+            }
         }
     }
 }
@@ -150,7 +166,6 @@ impl TimelineStatus {
             TimelineStatus::PaymentProcessing(..) => true,
             TimelineStatus::Funded(..) => true,
             _ => false,
-            
         }
     }
 
@@ -163,10 +178,10 @@ impl TimelineStatus {
             | TimelineStatus::Cancelled(review_status) => review_status.into(),
             TimelineStatus::PaymentProcessing(payment_processing_status) => {
                 &payment_processing_status.review_status
-            },
+            }
             TimelineStatus::Funded(funded_status) => {
                 &funded_status.payment_processing_status.review_status
-            },
+            }
             TimelineStatus::Draft => &ReviewStatus {
                 sponsor_requested_review: false,
                 reviewer_completed_attestation: false,
@@ -177,14 +192,14 @@ impl TimelineStatus {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReviewStatusV1 {
     sponsor_requested_review: bool,
     reviewer_completed_attestation: bool,
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReviewStatusV2 {
     sponsor_requested_review: bool,
     reviewer_completed_attestation: bool,
@@ -192,7 +207,7 @@ pub struct ReviewStatusV2 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PaymentProcessingStatusV1 {
     #[serde(flatten)]
     review_status: ReviewStatusV1,
@@ -202,7 +217,7 @@ pub struct PaymentProcessingStatusV1 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PaymentProcessingStatusV2 {
     #[serde(flatten)]
     review_status: ReviewStatusV2,
@@ -213,7 +228,7 @@ pub struct PaymentProcessingStatusV2 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FundedStatusV1 {
     #[serde(flatten)]
     payment_processing_status: PaymentProcessingStatusV1,
@@ -222,7 +237,7 @@ pub struct FundedStatusV1 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FundedStatusV2 {
     #[serde(flatten)]
     payment_processing_status: PaymentProcessingStatusV2,

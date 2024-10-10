@@ -39,12 +39,15 @@ near-contract-standards.workspace = true
 serde_json = { version = "1.0", features = ["preserve_order"] }
 devhub_common.workspace = true
 html-escape = "0.2.13"
+devhub-shared = { path = "shared" }
 
 [dev-dependencies]
 near-sdk = { workspace = true, features = ["unit-testing"] }
 insta = { version = "1.31.0", features = ["json", "redactions"] }
 regex = "1"
-near-workspaces = { version = "0.14.0", features = ["unstable"], default-features = false  }
+near-workspaces = { version = "0.14.0", features = [
+  "unstable",
+], default-features = false }
 cargo-near-build.workspace = true
 tokio = { version = "1.10.0", features = ["full"] }
 anyhow = "1.0"

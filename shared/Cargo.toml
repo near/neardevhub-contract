@@ -1,0 +1,12 @@
+[package]
+name = "devhub-shared"
+version = "0.1.0"
+authors = ["NEAR DevHub <neardevhub.org>"]
+edition = "2021"
+description = "Proposal and Rfp structs for both neardevhub-contract and neardevhub-cache-api"
+license = "MIT"
+homepage = "https://devhub.near.page/"
+repository = "https://github.com/neardevhub/neardevhub-contract"
+
+[dependencies]
+near-sdk = { version = "5.1.0", features = ["unstable"] }

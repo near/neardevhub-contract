@@ -1,118 +1,9 @@
-pub mod repost;
-pub mod timeline;
-
-use std::collections::HashSet;
-
-pub use self::timeline::TimelineStatus;
-
-use crate::Contract;
-use crate::proposal::{Proposal, ProposalId, VersionedProposalBody};
 use crate::notify::get_text_mentions;
-use crate::str_serializers::*;
-
-use near_sdk::{env, require, near, AccountId, BlockHeight, Timestamp};
-
-pub type RFPId = u32;
-
-type PostTag = String;
-
-#[near(serializers=[borsh, json])]
-#[derive(Clone)]
-#[serde(tag = "rfp_version")]
-pub enum VersionedRFP {
-    V0(RFP),
-}
-
-#[near(serializers=[borsh, json])]
-#[derive(Clone)]
-pub struct RFP {
-    pub id: RFPId,
-    pub author_id: AccountId,
-    #[serde(
-        serialize_with = "u64_dec_format::serialize",
-        deserialize_with = "u64_dec_format::deserialize"
-    )]
-    pub social_db_post_block_height: BlockHeight,
-    pub snapshot: RFPSnapshot,
-    // Excludes the current snapshot itself.
-    // Contains the block height when the RFP was added or edited.
-    pub snapshot_history: Vec<BlockHeight>,
-}
-
-impl From<VersionedRFP> for RFP {
-    fn from(vp: VersionedRFP) -> Self {
-        match vp {
-            VersionedRFP::V0(v0) => v0,
-        }
-    }
-}
-
-impl From<RFP> for VersionedRFP {
-    fn from(p: RFP) -> Self {
-        VersionedRFP::V0(p)
-    }
-}
-
-#[near(serializers=[borsh, json])]
-#[derive(Clone)]
-pub struct RFPSnapshot {
-    pub editor_id: AccountId,
-    #[serde(
-        serialize_with = "u64_dec_format::serialize",
-        deserialize_with = "u64_dec_format::deserialize"
-    )]
-    pub timestamp: Timestamp,
-    #[serde(
-        serialize_with = "u64_dec_format::serialize",
-        deserialize_with = "u64_dec_format::deserialize"
-    )]
-    pub block_height: BlockHeight,
-    pub labels: HashSet<PostTag>,
-    #[serde(flatten)]
-    pub body: VersionedRFPBody,
-    pub linked_proposals: HashSet<RFPId>,
-}
-
-#[near(serializers=[borsh, json])]
-#[derive(Clone)]
-pub struct RFPBodyV0 {
-    pub name: String,
-    pub summary: String,
-    pub description: String,
-    pub timeline: TimelineStatus,
-    #[serde(
-        serialize_with = "u64_dec_format::serialize",
-        deserialize_with = "u64_dec_format::deserialize"
-    )]
-    pub submission_deadline: Timestamp,
-}
-
-#[near(serializers=[borsh, json])]
-#[derive(Clone)]
-#[serde(tag = "rfp_body_version")]
-pub enum VersionedRFPBody {
-    V0(RFPBodyV0),
-}
-
-impl From<VersionedRFPBody> for RFPBodyV0 {
-    fn from(solution: VersionedRFPBody) -> Self {
-        match solution {
-            VersionedRFPBody::V0(v0) => v0,
-        }
-    }
-}
-
-impl From<RFPBodyV0> for VersionedRFPBody {
-    fn from(p: RFPBodyV0) -> Self {
-        VersionedRFPBody::V0(p)
-    }
-}
-
-impl VersionedRFPBody {
-    pub fn latest_version(self) -> RFPBodyV0 {
-        self.into()
-    }
-}
+use crate::Contract;
+use devhub_shared::proposal::*;
+use devhub_shared::rfp::*;
+use near_sdk::{env, require, AccountId};
+use std::collections::HashSet;
 
 pub fn get_subscribers(proposal_body: &RFPBodyV0) -> Vec<String> {
     let result = [
@@ -123,11 +14,23 @@ pub fn get_subscribers(proposal_body: &RFPBodyV0) -> Vec<String> {
     result
 }
 
-enum LinkedProposalChangeOperation {
-    Add,
-    Remove,
-}
+pub fn rfp_repost_text(rfp: RFP) -> String {
+    let rfp_link = format!("/devhub.near/widget/app?page=rfp&id={}", rfp.id);
 
+    let body = rfp.snapshot.body.latest_version();
+
+    let title = body.name;
+    let summary = body.summary;
+
+    let text = format!(
+      "A new Request for Proposals is published.\n\n———\n\n**Title**: “{title}“\n\n**Summary**:\n\n{summary}\n\n———\n\nRead the full RFP and participate [here]({rfp_link})",
+      rfp_link = rfp_link,
+      title = title,
+      summary = summary,
+  );
+
+    text
+}
 
 impl Contract {
     fn assert_can_link_unlink_rfp(&self, rfp_id: Option<RFPId>) {
@@ -138,9 +41,9 @@ impl Contract {
                 .unwrap_or_else(|| panic!("RFP id {} not found", rfp_id))
                 .into();
             require!(
-                rfp.snapshot.body.latest_version().timeline.is_accepting_submissions() || self.is_allowed_to_write_rfps(env::predecessor_account_id()),
-                format!("The RFP {} is not in the Accepting Submissions state, so you can't link or unlink to this RFP", rfp_id)
-            );
+              rfp.snapshot.body.latest_version().timeline.is_accepting_submissions() || self.is_allowed_to_write_rfps(env::predecessor_account_id()),
+              format!("The RFP {} is not in the Accepting Submissions state, so you can't link or unlink to this RFP", rfp_id)
+          );
         }
     }
 
@@ -158,7 +61,12 @@ impl Contract {
         rfp.snapshot.linked_proposals
     }
 
-    fn change_linked_proposal_in_rfp(&mut self, rfp_id: RFPId, proposal_id: ProposalId, operation: LinkedProposalChangeOperation) {
+    fn change_linked_proposal_in_rfp(
+        &mut self,
+        rfp_id: RFPId,
+        proposal_id: ProposalId,
+        operation: LinkedProposalChangeOperation,
+    ) {
         let mut rfp: RFP = self.get_rfp(rfp_id).into();
         let mut linked_proposals = rfp.snapshot.linked_proposals.clone();
         match operation {
@@ -187,7 +95,11 @@ impl Contract {
     }
 
     fn remove_linked_proposal_in_rfp(&mut self, rfp_id: RFPId, proposal_id: ProposalId) {
-        self.change_linked_proposal_in_rfp(rfp_id, proposal_id, LinkedProposalChangeOperation::Remove);
+        self.change_linked_proposal_in_rfp(
+            rfp_id,
+            proposal_id,
+            LinkedProposalChangeOperation::Remove,
+        );
     }
 
     pub(crate) fn update_and_check_rfp_link(
@@ -234,10 +146,19 @@ impl Contract {
         let rfp_body = body.clone().latest_version();
 
         if rfp_body.timeline.is_proposal_selected() {
-            let has_approved_proposal = self.get_rfp_linked_proposals(id)
+            let has_approved_proposal = self
+                .get_rfp_linked_proposals(id)
                 .into_iter()
                 .filter_map(|proposal_id| self.proposals.get(proposal_id.into()))
-                .any(|proposal|  Into::<Proposal>::into(proposal).snapshot.body.latest_version().timeline.latest_version().was_approved());
+                .any(|proposal| {
+                    Into::<Proposal>::into(proposal)
+                        .snapshot
+                        .body
+                        .latest_version()
+                        .timeline
+                        .latest_version()
+                        .was_approved()
+                });
             require!(has_approved_proposal, "Cannot change RFP status to Proposal Selected without an approved proposal linked to this RFP");
         }
 

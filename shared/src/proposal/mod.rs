@@ -1,29 +1,27 @@
-pub mod repost;
 pub mod timeline;
 
 use std::collections::HashSet;
 
 use self::timeline::{TimelineStatusV1, VersionedTimelineStatus};
 
-use crate::Contract;
+use crate::rfp::RFPId;
 use crate::str_serializers::*;
-use crate::{notify::get_text_mentions, rfp::RFPId};
 
-use near_sdk::{env, near, require, AccountId, BlockHeight, Timestamp};
+use near_sdk::{near, AccountId, BlockHeight, Timestamp};
 
 pub type ProposalId = u32;
 
 type PostTag = String;
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[serde(tag = "proposal_version")]
 pub enum VersionedProposal {
     V0(Proposal),
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Proposal {
     pub id: ProposalId,
     pub author_id: AccountId,
@@ -52,7 +50,7 @@ impl From<Proposal> for VersionedProposal {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProposalSnapshot {
     pub editor_id: AccountId,
     #[serde(
@@ -66,7 +64,7 @@ pub struct ProposalSnapshot {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProposalBodyV0 {
     pub name: String,
     pub category: String,
@@ -86,7 +84,7 @@ pub struct ProposalBodyV0 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProposalBodyV1 {
     pub name: String,
     pub category: String,
@@ -107,7 +105,7 @@ pub struct ProposalBodyV1 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProposalBodyV2 {
     pub name: String,
     pub category: String,
@@ -128,7 +126,7 @@ pub struct ProposalBodyV2 {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[serde(tag = "proposal_body_version")]
 pub enum VersionedProposalBody {
     V0(ProposalBodyV0),
@@ -199,7 +197,7 @@ impl From<VersionedProposalBody> for ProposalBodyV2 {
             VersionedProposalBody::V0(v0) => {
                 let v1: ProposalBodyV1 = v0.into();
                 v1.into()
-            },
+            }
             VersionedProposalBody::V1(v1) => v1.into(),
             VersionedProposalBody::V2(v2) => v2,
         }
@@ -230,19 +228,6 @@ impl VersionedProposalBody {
     }
 }
 
-pub fn get_subscribers(proposal_body: &ProposalBodyV2) -> Vec<String> {
-    let mut result = [
-        get_text_mentions(proposal_body.description.as_str()),
-        get_text_mentions(proposal_body.summary.as_str()),
-    ]
-    .concat();
-    if let Some(supervisor) = proposal_body.supervisor.clone() {
-        result.push(supervisor.to_string());
-    }
-    result.push(proposal_body.requested_sponsor.to_string());
-    result
-}
-
 pub fn default_categories() -> Vec<String> {
     vec![
         String::from("DevDAO Operations"),
@@ -256,113 +241,10 @@ pub fn default_categories() -> Vec<String> {
 }
 
 #[near(serializers=[borsh, json])]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ProposalFundingCurrency {
     NEAR,
     USDT,
     USDC,
     OTHER,
-}
-
-impl Contract {
-    pub(crate) fn update_proposal_labels(&mut self, proposal_id: ProposalId, new_labels: HashSet<String>) -> ProposalId {
-        let proposal: Proposal = self
-            .proposals
-            .get(proposal_id.into())
-            .unwrap_or_else(|| panic!("Proposal id {} not found", proposal_id))
-            .into();
-
-        self.edit_proposal_internal(proposal_id, proposal.snapshot.body, new_labels)
-    }
-
-    pub(crate) fn edit_proposal_internal(
-        &mut self,
-        id: ProposalId,
-        body: VersionedProposalBody,
-        labels: HashSet<String>,
-    ) -> ProposalId {
-        require!(
-            self.is_allowed_to_edit_proposal(id, Option::None),
-            "The account is not allowed to edit this proposal"
-        );
-        let editor_id = env::predecessor_account_id();
-        let mut proposal: Proposal = self
-            .proposals
-            .get(id.into())
-            .unwrap_or_else(|| panic!("Proposal id {} not found", id))
-            .into();
-
-        let proposal_body = body.clone().latest_version();
-
-        let old_body = proposal.snapshot.body.clone();
-        let labels = self.update_and_check_rfp_link(id, body.clone(), Some(old_body.clone()), labels);
-
-        let current_timeline = old_body.latest_version().timeline.latest_version();
-        let new_timeline = proposal_body.timeline.latest_version();
-
-        require!(
-            self.has_moderator(editor_id.clone())
-                || editor_id.clone() == env::current_account_id()
-                || current_timeline.is_draft()
-                    && (new_timeline.is_empty_review()
-                        || new_timeline.is_draft())
-                || current_timeline.can_be_cancelled() && new_timeline.is_cancelled(),
-            "This account is only allowed to change proposal status from DRAFT to REVIEW"
-        );
-
-        require!(
-            new_timeline.is_draft() ||  new_timeline.is_review() || new_timeline.is_cancelled() || proposal_body.supervisor.is_some(),
-            "You can't change the timeline of the proposal to this status without adding a supervisor"
-        );
-
-        require!(self.proposal_categories.contains(&proposal_body.category), "Unknown category");
-
-        let old_snapshot = proposal.snapshot.clone();
-        let old_labels_set = old_snapshot.labels.clone();
-        let new_labels = labels;
-        let new_snapshot = ProposalSnapshot {
-            editor_id: editor_id.clone(),
-            timestamp: env::block_timestamp(),
-            labels: new_labels.clone(),
-            body: body,
-        };
-        proposal.snapshot = new_snapshot;
-        proposal.snapshot_history.push(old_snapshot);
-        let proposal_author = proposal.author_id.clone();
-        self.proposals.replace(id.try_into().unwrap(), &proposal.into());
-
-        // Update labels index.
-        let new_labels_set = new_labels;
-        let labels_to_remove = &old_labels_set - &new_labels_set;
-        let labels_to_add = &new_labels_set - &old_labels_set;
-        require!(
-            self.is_allowed_to_use_labels(
-                Some(editor_id.clone()),
-                labels_to_remove.iter().cloned().collect()
-            ),
-            "Not allowed to remove these labels"
-        );
-        require!(
-            self.is_allowed_to_use_labels(
-                Some(editor_id.clone()),
-                labels_to_add.iter().cloned().collect()
-            ),
-            "Not allowed to add these labels"
-        );
-
-        for label_to_remove in labels_to_remove {
-            let mut proposals = self.label_to_proposals.get(&label_to_remove).unwrap();
-            proposals.remove(&id);
-            self.label_to_proposals.insert(&label_to_remove, &proposals);
-        }
-
-        for label_to_add in labels_to_add {
-            let mut proposals = self.label_to_proposals.get(&label_to_add).unwrap_or_default();
-            proposals.insert(id);
-            self.label_to_proposals.insert(&label_to_add, &proposals);
-        }
-
-        crate::notify::notify_edit_proposal(id, proposal_author);
-        id
-    }
 }

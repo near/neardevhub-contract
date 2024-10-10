@@ -1,13 +1,12 @@
 pub mod access_control;
+pub mod common;
 pub mod community;
 pub mod debug;
 pub mod migrations;
 mod notify;
-pub mod common;
 pub mod proposal;
 pub mod rfp;
 pub mod stats;
-pub mod str_serializers;
 pub mod web4;
 
 use crate::access_control::members::ActionType;
@@ -16,23 +15,24 @@ use crate::access_control::AccessControl;
 use community::*;
 
 use common::*;
-use proposal::timeline::{TimelineStatusV1, TimelineStatus, VersionedTimelineStatus};
-use proposal::*;
-use rfp::{
-    RFPId, RFPSnapshot, TimelineStatus as RFPTimelineStatus, VersionedRFP, VersionedRFPBody, RFP,
+use devhub_shared::proposal::timeline::{
+    TimelineStatus, TimelineStatusV1, VersionedTimelineStatus,
 };
+use devhub_shared::proposal::*;
+use devhub_shared::rfp::timeline::TimelineStatus as RFPTimelineStatus;
+use devhub_shared::rfp::*;
 
 use devhub_common::{social_db_contract, SetReturnType};
 
 use near_sdk::borsh::BorshDeserialize;
 use near_sdk::collections::{LookupMap, UnorderedMap, Vector};
-use near_sdk::store::Lazy;
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json::{json, Number, Value};
+use near_sdk::store::Lazy;
 use near_sdk::{env, near, require, AccountId, NearSchema, PanicOnDefault, Promise};
 use web4::types::{Web4Request, Web4Response};
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
 type PostId = u64;
@@ -90,12 +90,9 @@ impl Contract {
         contract
     }
 
-    pub fn get_proposals(&self, ids: Option< Vec<ProposalId> >) -> Vec<VersionedProposal> {
+    pub fn get_proposals(&self, ids: Option<Vec<ProposalId>>) -> Vec<VersionedProposal> {
         if let Some(ids) = ids {
-            ids
-                .into_iter()
-                .filter_map(|id| self.proposals.get(id.into()))
-                .collect()
+            ids.into_iter().filter_map(|id| self.proposals.get(id.into())).collect()
         } else {
             self.proposals.to_vec()
         }
@@ -140,7 +137,10 @@ impl Contract {
                 "Terms and conditions version cannot be from the future"
             );
         } else {
-            require!(env::current_account_id() != "devhub.near", "Accepted terms and conditions version is required");
+            require!(
+                env::current_account_id() != "devhub.near",
+                "Accepted terms and conditions version is required"
+            );
         }
 
         let proposal_body = body.clone().latest_version();
@@ -191,11 +191,11 @@ impl Contract {
             snapshot_history: vec![],
         };
 
-        proposal::repost::publish_to_socialdb_feed(
+        proposal::publish_to_socialdb_feed(
             Self::ext(env::current_account_id())
                 .with_static_gas(env::prepaid_gas().saturating_div(4))
                 .set_block_height_callback(proposal.clone()),
-            proposal::repost::proposal_repost_text(proposal.clone()),
+            proposal::proposal_repost_text(proposal.clone()),
         )
         .then(notify::notify_proposal_subscribers(&proposal))
     }
@@ -244,11 +244,11 @@ impl Contract {
             snapshot_history: vec![],
         };
 
-        proposal::repost::publish_to_socialdb_feed(
+        proposal::publish_to_socialdb_feed(
             Self::ext(env::current_account_id())
                 .with_static_gas(env::prepaid_gas().saturating_div(4))
                 .set_rfp_block_height_callback(rfp.clone()),
-            rfp::repost::rfp_repost_text(rfp.clone()),
+            rfp::rfp_repost_text(rfp.clone()),
         )
         .then(notify::notify_rfp_subscribers(&rfp, self.get_moderators()))
     }
@@ -301,7 +301,7 @@ impl Contract {
         res.sort();
         res
     }
-    
+
     pub fn get_all_authors(&self) -> Vec<AccountId> {
         let mut res: Vec<_> = self.authors.keys().collect();
         res.sort();
@@ -453,7 +453,11 @@ impl Contract {
     }
 
     #[payable]
-    pub fn edit_proposal_timeline(&mut self, id: ProposalId, timeline: TimelineStatusV1) -> ProposalId {
+    pub fn edit_proposal_timeline(
+        &mut self,
+        id: ProposalId,
+        timeline: TimelineStatusV1,
+    ) -> ProposalId {
         let proposal: Proposal = self
             .proposals
             .get(id.into())
@@ -484,7 +488,11 @@ impl Contract {
     }
 
     #[payable]
-    pub fn edit_proposal_linked_rfp(&mut self, id: ProposalId, rfp_id: Option<RFPId>) -> ProposalId {
+    pub fn edit_proposal_linked_rfp(
+        &mut self,
+        id: ProposalId,
+        rfp_id: Option<RFPId>,
+    ) -> ProposalId {
         let proposal: Proposal = self
             .proposals
             .get(id.into())
@@ -507,12 +515,20 @@ impl Contract {
     }
 
     #[payable]
-    pub fn cancel_rfp(&mut self, id: RFPId, proposals_to_cancel: Vec<ProposalId>, proposals_to_unlink: Vec<ProposalId>) -> RFPId {
+    pub fn cancel_rfp(
+        &mut self,
+        id: RFPId,
+        proposals_to_cancel: Vec<ProposalId>,
+        proposals_to_unlink: Vec<ProposalId>,
+    ) -> RFPId {
         for proposal_id in proposals_to_cancel {
             let proposal: Proposal = self.get_proposal(proposal_id).into();
             let proposal_timeline = proposal.snapshot.body.latest_version().timeline;
             let review_status = proposal_timeline.latest_version().get_review_status().clone();
-            self.edit_proposal_versioned_timeline(proposal_id, TimelineStatus::Cancelled(review_status).into());
+            self.edit_proposal_versioned_timeline(
+                proposal_id,
+                TimelineStatus::Cancelled(review_status).into(),
+            );
         }
 
         for proposal_id in proposals_to_unlink {
@@ -536,7 +552,8 @@ impl Contract {
     }
 
     pub fn get_global_labels(&self) -> Vec<LabelInfoExtended> {
-        let mut result: Vec<LabelInfoExtended> = self.global_labels_info
+        let mut result: Vec<LabelInfoExtended> = self
+            .global_labels_info
             .iter()
             .map(|(label, label_info)| LabelInfoExtended {
                 value: label.clone(),
@@ -549,9 +566,7 @@ impl Contract {
     }
 
     pub fn get_rfp_linked_proposals(&self, rfp_id: RFPId) -> Vec<ProposalId> {
-        self.get_linked_proposals_in_rfp(rfp_id)
-            .into_iter()
-            .collect()
+        self.get_linked_proposals_in_rfp(rfp_id).into_iter().collect()
     }
 
     #[payable]
@@ -884,10 +899,13 @@ impl Contract {
     pub fn web4_get(&self, request: Web4Request) -> Web4Response {
         web4::handler::web4_get(self, request)
     }
-    
+
     pub fn set_social_db_profile_description(&self, description: String) -> Promise {
         let editor = env::predecessor_account_id();
-        require!(editor == env::current_account_id() || self.has_moderator(editor), "Permission denied");
+        require!(
+            editor == env::current_account_id() || self.has_moderator(editor),
+            "Permission denied"
+        );
         social_db_contract()
             .with_static_gas(env::prepaid_gas().saturating_div(3))
             .with_attached_deposit(env::attached_deposit())
